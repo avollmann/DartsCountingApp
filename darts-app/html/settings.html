@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Before the Game</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <script src="https://ajax.googleapis.com/ajax/libs/angularjs/1.8.0/angular.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js" integrity="sha384-DfXdz2htPH0lsSSs5nCTpuj/zy4C+OGpamoFVy38MVBnE+IbbVYUew+OrCXaRkfj" crossorigin="anonymous"></script>
+    <script src="../bootstrap-4.5.2-dist/js/bootstrap.js"></script>
+    <link rel="stylesheet" href="../bootstrap-4.5.2-dist/css/bootstrap.css">
+    <link rel="stylesheet" href="../css/settings.css">
+</head>
+<body>
+    <div class="mt-5">
+        <!-- Header (img)  -->
+        <div class="row justify-content-center">
+            <div class="card mb-3 imgHeader">
+                <div class="card-body">
+                    <img class="ml-5 mr-5 f10-chillOut" src="../images/f10darts_header.png" alt="Faktor Zehn Chill-Out Darts">
+                </div>
+            </div>
+        </div>
+
+        <!-- Player names and game settings are passed to the app via URL parameters  -->
+        <form method="GET" action="dartsApp.html" autocomplete="off">
+            <div ng-app="dartApp" ng-controller="myCtrl" class="ng-scope">
+                <div class="row justify-content-center mt-4">
+                    <!-- Player Section -->
+                    <div class="col-4 mb-3">
+                        <div class="card card-body">
+                            <h4 class="card-title">Players</h4>
+                            <!-- Listing of players via ng-repeat -->
+                            <div class="input-group input-group-lg mb-2 ng-scope" ng-repeat="x in players track by $index">
+                                <!-- input field to change the name of a player | parameter name: 'player' -->
+                                <input type="text" required class="form-control ng-pristine ng-untouched ng-valid ng-not-empty" ng-change="checkPlayersUnique()" ng-model="players[$index]" name="player">
+                                <!-- to delete a player -->
+                                <div class="input-group-append">
+                                    <button type="button" class="btn btn-outline-danger" ng-click="deletePlayer($index)">X</button>
+                                </div>
+                            </div>
+                            <!-- to add a player -->
+                            <button type="button" id="addPlayerBtn" class="btn btn-primary btn-lg btn-block" ng-click="addPlayer()">Add Player</button>
+                        </div>
+                    </div>
+
+                    <!-- Game Settings Section -->
+                    <div class="col-4 mb-3">
+                        <div class="card card-body">
+                            <h4 class="card-title mb-3">Settings</h4>
+                            <!-- Input field: Start Score (min 201, max 901, steps of 100) | parameter name: 'startscore' -->
+                            <div class="input-group input-group-lg mb-4">
+                                <div class="input-group-prepend">
+                                    <span class="input-group-text">Start Score</span>
+                                </div>
+                                <input class="form-control ng-pristine ng-untouched ng-valid ng-not-empty ng-valid-min ng-valid-max ng-valid-step" ng-blur="minimumInputScore()" type="number" min="201" step="100" max="901"  ng-model="score" name="startscore">
+                            </div>
+                            <!-- Input field: Legs to Win (min 1, max 5, steps of 1) | parameter name: 'l' -->
+                            <div class="input-group input-group-lg mb-4">
+                                <div class="input-group-prepend">
+                                    <span class="input-group-text">Legs to Win</span>
+                                </div>
+                                <input class="form-control ng-pristine ng-untouched ng-valid ng-not-empty ng-valid-min ng-valid-max ng-valid-step" ng-blur="minimumInputLegs()" type="number" min="1" step="1" max="5" ng-model="legs" name="l" >
+                                <div class="input-group-append">
+                                    <span class="input-group-text ng-binding">Out of {{ legs * 2 - 1 || 1}}</span>
+                                </div>
+                            </div>
+                            <!-- Input field: Sets to Win (min 1, max 5, steps of 1) | parameter name: 's' -->
+                            <div class="input-group input-group-lg mb-4">
+                                <div class="input-group-prepend">
+                                    <span class="input-group-text">Sets to Win</span>
+                                </div>
+                                <input class="form-control ng-pristine ng-untouched ng-valid ng-not-empty ng-valid-min ng-valid-max ng-valid-step" ng-blur="minimumInputSets()" type="number" min="1" step="1" max="5" ng-model="sets" name="s" >
+                                <div class="input-group-append">
+                                    <span class="input-group-text ng-binding">Out of {{ sets * 2 - 1 || 1}}</span>
+                                </div>
+                            </div>
+                            <!-- Input field: Checkout Mode (Single, Double, Double + Pub-Rule, Master) | parameter name: 'cm' -->
+                            <div class="input-group input-group-lg mb-1">
+                                <div class="input-group-prepend">
+                                    <span class="input-group-text">Checkout Mode</span>
+                                </div>
+                                <!-- Dropdown-List, Double pre-selected -->
+                                <select class="form-control ng-pristine ng-untouched ng-valid ng-not-empty" ng-model="checkout_mode" name="cm" ng-change="checkCheckoutMode()" >
+                                    <option ng-value="1" value="1">Straight</option>
+                                    <option ng-value="2" value="2">Double</option>
+                                    <option ng-value="3" value="3">Double + Pub-Rule</option>
+                                    <option ng-value="4" value="3">Master</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <!-- play-button | submits data to dartsApp.html -->
+                <!-- {{ blue_button_text }} changes, when there are less than 2 players or if player names aren't unique -->
+                <div class="row justify-content-center">
+                    <button id="playBtn" type="submit" class="btn btn-primary btn-block mb-5 mt-2">{{blue_button_text}}</button>
+                </div>
+            </div>
+        </form>
+    </div>
+
+
+    <script>
+        let app = angular.module("dartApp", []);
+        app.controller("myCtrl", function ($scope) {
+
+            $scope.score = 501;         // pre-selected start score
+            $scope.legs = 3;            // pre-selected legs to win
+            $scope.sets = 1;            // pre-selected sets to win
+            $scope.checkout_mode = 2;   // pre-selected checkout mode (1: Straight, 2: Double, 3: Double + Pub-Rule, 4: Master)
+            $scope.players = [          // pre-selected players
+                "Player1",
+                "Player2",
+                "Player3",
+                "Player4"
+            ];
+
+            // if the user doesn't enter a valid start score, the start score is automatically set to 301.
+            $scope.minimumInputScore = function () {
+                if ($scope.score == null) {
+                    $scope.score = 501;
+                }
+            }
+
+            // if the user doesn't enter a valid amount of legs to win, they are automatically set to 3.
+            $scope.minimumInputLegs = function () {
+                if ($scope.legs == null) {
+                    $scope.legs = 3;
+                }
+            }
+
+            // if the user doesn't enter a valid amount of sets to win, they are automatically set to 1.
+            $scope.minimumInputSets = function () {
+                if ($scope.sets == null) {
+                    $scope.sets = 1;
+                }
+            }
+
+            // if the user doesn't enter a valid checkout mode (shouldn't even be possible), it is automatically set to 2 ('Double').
+            $scope.checkCheckoutMode = function () {
+                if ($scope.checkout_mode == null) {
+                    $scope.checkout_mode = 2;
+                }
+            }
+
+            $scope.blue_button_text = "Play"
+            let addPlayerBtn = document.getElementById('addPlayerBtn');
+            let playBtn = document.getElementById('playBtn');
+
+            // checks if there are more than 8 or less than 2 players and disables add-button / disables and changes the content of play-button if necessary
+            $scope.checkPlayerAmount = function () {
+                if ($scope.players.length >= 8) {
+                    addPlayerBtn.disabled = true;
+                } else {
+                    addPlayerBtn.disabled = false;
+                }
+                if ($scope.players.length < 2) {
+                    playBtn.disabled = true;
+                    $scope.blue_button_text = "at least 2 players are required";
+                } else {
+                    playBtn.disabled = false;
+                    $scope.blue_button_text = "Play";
+                }
+            }
+
+            // checks, if 2 players have the same name and disables play-button if that's the case.
+            $scope.checkPlayersUnique = function () {
+                for (let i = 0; i < $scope.players.length; i++) {
+                    for (let j = 0; j < $scope.players.length; j++) {
+                        if (i !== j) {
+                            if ($scope.players[i] === $scope.players[j]) {
+                                $scope.blue_button_text = "at least 2 players have the same name";
+                                playBtn.disabled = true;
+                                return true;
+                            }
+                        }
+                    }
+                }
+                $scope.blue_button_text = "Play";
+                playBtn.disabled = false;
+            }
+
+            // adds new player to the end of players[]
+            $scope.addPlayer = function () {
+                if ($scope.players.length < 8) {
+                    $scope.players.push("Player" + ($scope.players.length + 1));
+                }
+                if (!$scope.checkPlayersUnique()) {
+                    $scope.checkPlayerAmount();
+                }
+            }
+
+            // removes player from players[0]
+            $scope.deletePlayer = function (x) {
+                $scope.players.splice(x, 1);
+                if (!$scope.checkPlayersUnique()) {
+                    $scope.checkPlayerAmount();
+                }
+            }
+        });
+    </script>
+</body>
+</html>

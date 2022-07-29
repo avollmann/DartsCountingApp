@@ -1,0 +1,978 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>Chill-Out Darts</title>
+  <link rel="stylesheet" href="../css/dartsApp.css">
+  <link rel="stylesheet" href="../bootstrap-4.5.2-dist/css/bootstrap.min.css">
+  <meta charset="UTF-8">
+  <script src="https://ajax.googleapis.com/ajax/libs/angularjs/1.8.0/angular.min.js"></script>
+  <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js" integrity="sha384-DfXdz2htPH0lsSSs5nCTpuj/zy4C+OGpamoFVy38MVBnE+IbbVYUew+OrCXaRkfj" crossorigin="anonymous"></script>
+  <script src="../bootstrap-4.5.2-dist/js/bootstrap.min.js"></script>
+</head>
+
+<!--
+TODO
+(für die nächste Person / Praktikanten)
+
+Haupt-Bug:
+Undo-Funktion (Schritt zurück) -> vor allem, wenn zB ein falscher Spieler ein Leg/Set gewonnen hat und man das rückgängig machen will
+-> + entsprechende Anpassungen in der Stats-Section (aufpassen auf <0 und /0)
+& auch bei den gewonnenen Legs (überhalb der Stats-Tabelle)
+Falls das Spiel vorbei ist, soll wieder auf die settings.html-Seite gesprungen werden - das funktioniert auch nicht
+
+Stats:
+Avg. Checkout-Attempts / Leg fixen
+
+Design:
+1. Game Settings Section: die .actualRules-Klasse ist nicht responsive, wenn man das Fenster kleiner als 16:9 macht
+2. Bei vielen Spielern geht sich die Game-Section nicht mehr auf einem Bildschirm aus -> Größe von den einzelnen Spielern ändern, wenn Bildschirm kleiner wird
+
+Testing:
+Falls URL unzulässig manipuliert wird -> Fehlermeldung ausgeben
+Die App hat sicher noch mehr Bugs, einfach viel testen
+
+Beispiele für Erweiterungen
+z.B. eine Extended Stats-Section mit Cards, wo die gesamte bisherige Shot History angezeigt wird
+REST-Services verwenden, im anderen Branch wurde hier schon von einem früheren Praktikanten etwas entwickelt
+
+Viel Erfolg!
+
+-->
+
+<body>
+  <div ng-app="dartApp" ng-controller="myCtrl">
+    <!-- Game Settings Section -->
+    <section id="intro">
+      <div class="appearAnimation">
+        <div class="row justify-content-center">
+          <h1 class="ruleHeader"><strong>Game Settings</strong></h1>
+        </div>
+        <!-- only the labels -->
+        <div class="rules">
+          <p>
+            <ul>Start Score:</ul><br>
+            <ul>Checkout Mode:</ul><br>
+            <ul>Legs to win:</ul><br>
+            <ul>Sets to win:</ul><br>
+          </p>
+        </div>
+        <!-- actual values (from $scope) -> via .innerHTML -->
+        <div class="actualRules">
+          <p>
+          <ul id="getScore">Error</ul><br>
+          <ul id="getCheckoutmode">Error</ul><br>
+          <ul id="getLegs">Error</ul><br>
+          <ul id="getSets">Error</ul><br>
+          </p>
+
+        </div>
+        <!-- not copyrightfree https://de.depositphotos.com/58754163/stock-illustration-cartoon-man-throwing-a-dart.html -->
+        <div id="dartsthrowingguy">
+          <img id="dartguy" src="../images/dartsthrowingguy.png" alt="Darts Throwing Guy" width="400px">
+        </div>
+        <div class="row justify-content-center choseWrongSettings">
+          <span>&nbsp;&nbsp;&nbsp;Click <a href="settings.html">here</a> to get back to Players/Settings!</span>
+        </div>
+      </div>
+      <!-- Scroller to Game Section -->
+      <a href="#game">
+        <div class="scroll-downToGame"></div>
+      </a>
+    </section>
+
+    <!-- Game Section -->
+    <section id="game">
+      <!-- Win Modal -->
+      <div class="modal fade bd-example-modal-sm" id="winPopup" tabindex="-1" role="dialog" aria-labelledby="winPopupLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title" id="winPopupLabel"> </h5>
+            </div>
+            <div class="modal-body">
+              <div id="accordion">
+                <div class="card" ng-repeat="x in players">
+                  <div class="card-header" id="heading{{ x.name }}">
+                    <h5 class="mb-0">
+                      <button class="btn btn-link" style="width:100%" data-toggle="collapse" data-target="#{{ x.name }}" aria-expanded="false" aria-controls="{{ x.name }}">
+                        <div class="float-left">{{ x.name }}</div>
+                        <div class="float-right">{{ x.score }}</div>
+                      </button>
+                    </h5>
+                  </div>
+                  <div id="{{ x.name }}" class="collapse" aria-labelledby="heading{{ x.name }}" data-parent="#accordion">
+                    <div class="card-body">
+                      <ul class="list-group" style="font-size:1em;">
+                        <li class="list-group-item" ng-repeat="y in x.shots">
+                          {{ y }}
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button ng-click="closeModal()" type="button" class="btn btn-danger" data-dismiss="modal">Undo</button>
+              <button ng-click="nextGame()" type="button" class="btn btn-primary" data-dismiss="modal">{{ next_new_game }}</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Scroller to Intro Section -->
+      <a href="#intro">
+        <div class="scroll-upToIntro"></div>
+      </a>
+
+      <table class="mt-5" width="100%">
+        <tbody>
+        <tr>
+          <td width=45%>
+            <!-- Miss and Undo Buttons -->
+            <button class="missBtn" ng-click="shot('Miss')">Miss</button>
+            <button class="undoBtn" style="{{hide_undo}}" ng-click="undo()"><img id="arrow" src="../images/returnBtn.png"></button>
+
+            <!-- Dartboard -->
+            <div class="svg-wrapper">
+              <svg id="dart" viewBox="0 0 420 420" style="display:block; margin:0">
+                <g transform="translate(210, 210) scale(1, -1)">
+
+                  <circle ng-click="shot('25')" class="single-bull" cx="0" cy="0" r="41"></circle>
+                  <circle ng-click="shot('BullsEye')" class="double-bull" cx="0" cy="0" r="16"></circle>
+
+                  <path ng-click="shot('6')" d="M 83.95350895058671,13.296929528419623 A 85 85 0 0 0 83.95350895058671,-13.296929528419623 L 40.49522196440065,-6.413813066649466 A 41 41 0 0 1 40.49522196440065,6.413813066649466 Z" class="odd single"></path>
+                  <path ng-click="shot('T6')" d="M 105.68265244367974,16.738487759304704 A 107 107 0 0 0 105.68265244367974,-16.738487759304704 L 83.95350895058671,-13.296929528419623 A 85 85 0 0 1 83.95350895058671,13.296929528419623 Z" class="odd triple"></path>
+                  <path ng-click="shot('6')" d="M 148.15325108927067,23.46516975603463 A 150 150 0 0 0 148.15325108927067,-23.46516975603463 L 105.68265244367974,-16.738487759304704 A 107 107 0 0 1 105.68265244367974,16.738487759304704 Z" class="odd single"></path>
+                  <path ng-click="shot('D6')" d="M 167.90701790117342,26.593859056839246 A 170 170 0 0 0 167.90701790117342,-26.593859056839246 L 148.15325108927067,-23.46516975603463 A 150 150 0 0 1 148.15325108927067,23.46516975603463 Z" class="odd double"></path>
+
+                  <path ng-click="shot('13')" d="M 75.73555455601127,38.589192477861474 A 85 85 0 0 0 83.95350895058671,13.296929528419623 L 40.49522196440065,6.413813066649466 A 41 41 0 0 1 36.531267491723085,18.613610489321417 Z" class="even single"></path>
+                  <path ng-click="shot('T13')" d="M 95.33769808815536,48.5769834721315 A 107 107 0 0 0 105.68265244367974,16.738487759304704 L 83.95350895058671,13.296929528419623 A 85 85 0 0 1 75.73555455601127,38.589192477861474 Z" class="even triple"></path>
+                  <path ng-click="shot('13')" d="M 133.6509786282552,68.09857496093201 A 150 150 0 0 0 148.15325108927067,23.46516975603463 L 105.68265244367974,16.738487759304704 A 107 107 0 0 1 95.33769808815536,48.5769834721315 Z" class="even single"></path>
+                  <path ng-click="shot('D13')" d="M 151.47110911202253,77.17838495572295 A 170 170 0 0 0 167.90701790117342,26.593859056839246 L 148.15325108927067,23.46516975603463 A 150 150 0 0 1 133.6509786282552,68.09857496093201 Z" class="even double"></path>
+
+                  <path ng-click="shot('4')" d="M 60.10407640085654,60.104076400856535 A 85 85 0 0 0 75.73555455601127,38.589192477861474 L 36.531267491723085,18.613610489321417 A 41 41 0 0 1 28.99137802864845,28.991378028648445 Z" class="odd single"></path>
+                  <path ng-click="shot('T4')" d="M 75.66042558696059,75.66042558696059 A 107 107 0 0 0 95.33769808815536,48.5769834721315 L 75.73555455601127,38.589192477861474 A 85 85 0 0 1 60.10407640085654,60.104076400856535 Z" class="odd triple"></path>
+                  <path ng-click="shot('4')" d="M 106.06601717798213,106.06601717798212 A 150 150 0 0 0 133.6509786282552,68.09857496093201 L 95.33769808815536,48.5769834721315 A 107 107 0 0 1 75.66042558696059,75.66042558696059 Z" class="odd single"></path>
+                  <path ng-click="shot('D4')" d="M 120.20815280171308,120.20815280171307 A 170 170 0 0 0 151.47110911202253,77.17838495572295 L 133.6509786282552,68.09857496093201 A 150 150 0 0 1 106.06601717798213,106.06601717798212 Z" class="odd double"></path>
+
+                  <path ng-click="shot('18')" d="M 38.58919247786148,75.73555455601127 A 85 85 0 0 0 60.10407640085654,60.104076400856535 L 28.99137802864845,28.991378028648445 A 41 41 0 0 1 18.61361048932142,36.53126749172308 Z" class="even single"></path>
+                  <path ng-click="shot('T18')" d="M 48.576983472131516,95.33769808815535 A 107 107 0 0 0 75.66042558696059,75.66042558696059 L 60.10407640085654,60.104076400856535 A 85 85 0 0 1 38.58919247786148,75.73555455601127 Z" class="even triple"></path>
+                  <path ng-click="shot('18')" d="M 68.09857496093203,133.65097862825516 A 150 150 0 0 0 106.06601717798213,106.06601717798212 L 75.66042558696059,75.66042558696059 A 107 107 0 0 1 48.576983472131516,95.33769808815535 Z" class="even single"></path>
+                  <path ng-click="shot('D18')" d="M 77.17838495572296,151.47110911202253 A 170 170 0 0 0 120.20815280171308,120.20815280171307 L 106.06601717798213,106.06601717798212 A 150 150 0 0 1 68.09857496093203,133.65097862825516 Z" class="even double"></path>
+
+                  <path ng-click="shot('1')" d="M 13.296929528419628,83.95350895058671 A 85 85 0 0 0 38.58919247786148,75.73555455601127 L 18.61361048932142,36.53126749172308 A 41 41 0 0 1 6.4138130666494675,40.49522196440065 Z" class="odd single"></path>
+                  <path ng-click="shot('T1')" d="M 16.738487759304707,105.68265244367974 A 107 107 0 0 0 48.576983472131516,95.33769808815535 L 38.58919247786148,75.73555455601127 A 85 85 0 0 1 13.296929528419628,83.95350895058671 Z" class="odd triple"></path>
+                  <path ng-click="shot('1')" d="M 23.465169756034637,148.15325108927067 A 150 150 0 0 0 68.09857496093203,133.65097862825516 L 48.576983472131516,95.33769808815535 A 107 107 0 0 1 16.738487759304707,105.68265244367974 Z" class="odd single"></path>
+                  <path ng-click="shot('D1')" d="M 26.593859056839257,167.90701790117342 A 170 170 0 0 0 77.17838495572296,151.47110911202253 L 68.09857496093203,133.65097862825516 A 150 150 0 0 1 23.465169756034637,148.15325108927067 Z" class="odd double"></path>
+
+                  <path ng-click="shot('20')" d="M -13.29692952841962,83.95350895058671 A 85 85 0 0 0 13.296929528419628,83.95350895058671 L 6.4138130666494675,40.49522196440065 A 41 41 0 0 1 -6.413813066649463,40.49522196440065 Z" class="even single"></path>
+                  <path ng-click="shot('T20')" d="M -16.738487759304697,105.68265244367974 A 107 107 0 0 0 16.738487759304707,105.68265244367974 L 13.296929528419628,83.95350895058671 A 85 85 0 0 1 -13.29692952841962,83.95350895058671 Z" class="even triple"></path>
+                  <path ng-click="shot('20')" d="M -23.465169756034623,148.15325108927067 A 150 150 0 0 0 23.465169756034637,148.15325108927067 L 16.738487759304707,105.68265244367974 A 107 107 0 0 1 -16.738487759304697,105.68265244367974 Z" class="even single"></path>
+                  <path ng-click="shot('D20')" d="M -26.59385905683924,167.90701790117342 A 170 170 0 0 0 26.593859056839257,167.90701790117342 L 23.465169756034637,148.15325108927067 A 150 150 0 0 1 -23.465169756034623,148.15325108927067 Z" class="even double"></path>
+
+                  <path ng-click="shot('5')" d="M -38.589192477861474,75.73555455601127 A 85 85 0 0 0 -13.29692952841962,83.95350895058671 L -6.413813066649463,40.49522196440065 A 41 41 0 0 1 -18.613610489321417,36.531267491723085 Z" class="odd single"></path>
+                  <path ng-click="shot('T5')" d="M -48.5769834721315,95.33769808815536 A 107 107 0 0 0 -16.738487759304697,105.68265244367974 L -13.29692952841962,83.95350895058671 A 85 85 0 0 1 -38.589192477861474,75.73555455601127 Z" class="odd triple"></path>
+                  <path ng-click="shot('5')" d="M -68.09857496093201,133.6509786282552 A 150 150 0 0 0 -23.465169756034623,148.15325108927067 L -16.738487759304697,105.68265244367974 A 107 107 0 0 1 -48.5769834721315,95.33769808815536 Z" class="odd single"></path>
+                  <path ng-click="shot('D5')" d="M -77.17838495572295,151.47110911202253 A 170 170 0 0 0 -26.59385905683924,167.90701790117342 L -23.465169756034623,148.15325108927067 A 150 150 0 0 1 -68.09857496093201,133.6509786282552 Z" class="odd double"></path>
+
+                  <path ng-click="shot('12')" d="M -60.104076400856535,60.10407640085654 A 85 85 0 0 0 -38.589192477861474,75.73555455601127 L -18.613610489321417,36.531267491723085 A 41 41 0 0 1 -28.991378028648445,28.99137802864845 Z" class="even single"></path>
+                  <path ng-click="shot('T12')" d="M -75.66042558696059,75.66042558696059 A 107 107 0 0 0 -48.5769834721315,95.33769808815536 L -38.589192477861474,75.73555455601127 A 85 85 0 0 1 -60.104076400856535,60.10407640085654 Z" class="even triple"></path>
+                  <path ng-click="shot('12')" d="M -106.06601717798212,106.06601717798213 A 150 150 0 0 0 -68.09857496093201,133.6509786282552 L -48.5769834721315,95.33769808815536 A 107 107 0 0 1 -75.66042558696059,75.66042558696059 Z" class="even single"></path>
+                  <path ng-click="shot('D12')" d="M -120.20815280171307,120.20815280171308 A 170 170 0 0 0 -77.17838495572295,151.47110911202253 L -68.09857496093201,133.6509786282552 A 150 150 0 0 1 -106.06601717798212,106.06601717798213 Z" class="even double"></path>
+
+                  <path ng-click="shot('9')" d="M -75.73555455601127,38.58919247786148 A 85 85 0 0 0 -60.104076400856535,60.10407640085654 L -28.991378028648445,28.99137802864845 A 41 41 0 0 1 -36.53126749172308,18.61361048932142 Z" class="odd single"></path>
+                  <path ng-click="shot('T9')" d="M -95.33769808815535,48.576983472131516 A 107 107 0 0 0 -75.66042558696059,75.66042558696059 L -60.104076400856535,60.10407640085654 A 85 85 0 0 1 -75.73555455601127,38.58919247786148 Z" class="odd triple"></path>
+                  <path ng-click="shot('9')" d="M -133.65097862825516,68.09857496093203 A 150 150 0 0 0 -106.06601717798212,106.06601717798213 L -75.66042558696059,75.66042558696059 A 107 107 0 0 1 -95.33769808815535,48.576983472131516 Z" class="odd single"></path>
+                  <path ng-click="shot('D9')" d="M -151.47110911202253,77.17838495572296 A 170 170 0 0 0 -120.20815280171307,120.20815280171308 L -106.06601717798212,106.06601717798213 A 150 150 0 0 1 -133.65097862825516,68.09857496093203 Z" class="odd double"></path>
+
+                  <path ng-click="shot('14')" d="M -83.9535089505867,13.296929528419634 A 85 85 0 0 0 -75.73555455601127,38.58919247786148 L -36.53126749172308,18.61361048932142 A 41 41 0 0 1 -40.49522196440064,6.41381306664947 Z" class="even single"></path>
+                  <path ng-click="shot('T14')" d="M -105.68265244367973,16.738487759304714 A 107 107 0 0 0 -95.33769808815535,48.576983472131516 L -75.73555455601127,38.58919247786148 A 85 85 0 0 1 -83.9535089505867,13.296929528419634 Z" class="even triple"></path>
+                  <path ng-click="shot('14')" d="M -148.15325108927064,23.465169756034648 A 150 150 0 0 0 -133.65097862825516,68.09857496093203 L -95.33769808815535,48.576983472131516 A 107 107 0 0 1 -105.68265244367973,16.738487759304714 Z" class="even single"></path>
+                  <path ng-click="shot('D14')" d="M -167.9070179011734,26.593859056839268 A 170 170 0 0 0 -151.47110911202253,77.17838495572296 L -133.65097862825516,68.09857496093203 A 150 150 0 0 1 -148.15325108927064,23.465169756034648 Z" class="even double"></path>
+
+                  <path ng-click="shot('11')" d="M -83.95350895058671,-13.296929528419613 A 85 85 0 0 0 -83.9535089505867,13.296929528419634 L -40.49522196440064,6.41381306664947 A 41 41 0 0 1 -40.49522196440065,-6.41381306664946 Z" class="odd single"></path>
+                  <path ng-click="shot('T11')" d="M -105.68265244367974,-16.73848775930469 A 107 107 0 0 0 -105.68265244367973,16.738487759304714 L -83.9535089505867,13.296929528419634 A 85 85 0 0 1 -83.95350895058671,-13.296929528419613 Z" class="odd triple"></path>
+                  <path ng-click="shot('11')" d="M -148.15325108927067,-23.46516975603461 A 150 150 0 0 0 -148.15325108927064,23.465169756034648 L -105.68265244367973,16.738487759304714 A 107 107 0 0 1 -105.68265244367974,-16.73848775930469 Z" class="odd single"></path>
+                  <path ng-click="shot('D11')" d="M -167.90701790117342,-26.593859056839225 A 170 170 0 0 0 -167.9070179011734,26.593859056839268 L -148.15325108927064,23.465169756034648 A 150 150 0 0 1 -148.15325108927067,-23.46516975603461 Z" class="odd double"></path>
+
+                  <path ng-click="shot('8')" d="M -75.73555455601127,-38.58919247786147 A 85 85 0 0 0 -83.95350895058671,-13.296929528419613 L -40.49522196440065,-6.41381306664946 A 41 41 0 0 1 -36.531267491723085,-18.613610489321413 Z" class="even single"></path>
+                  <path ng-click="shot('T8')" d="M -95.33769808815536,-48.576983472131495 A 107 107 0 0 0 -105.68265244367974,-16.73848775930469 L -83.95350895058671,-13.296929528419613 A 85 85 0 0 1 -75.73555455601127,-38.58919247786147 Z" class="even triple"></path>
+                  <path ng-click="shot('8')" d="M -133.6509786282552,-68.098574960932 A 150 150 0 0 0 -148.15325108927067,-23.46516975603461 L -105.68265244367974,-16.73848775930469 A 107 107 0 0 1 -95.33769808815536,-48.576983472131495 Z" class="even single"></path>
+                  <path ng-click="shot('D8')" d="M -151.47110911202253,-77.17838495572293 A 170 170 0 0 0 -167.90701790117342,-26.593859056839225 L -148.15325108927067,-23.46516975603461 A 150 150 0 0 1 -133.6509786282552,-68.098574960932 Z" class="even double"></path>
+
+                  <path ng-click="shot('16')" d="M -60.104076400856556,-60.104076400856535 A 85 85 0 0 0 -75.73555455601127,-38.58919247786147 L -36.531267491723085,-18.613610489321413 A 41 41 0 0 1 -28.991378028648455,-28.991378028648445 Z" class="odd single"></path>
+                  <path ng-click="shot('T16')" d="M -75.6604255869606,-75.66042558696059 A 107 107 0 0 0 -95.33769808815536,-48.576983472131495 L -75.73555455601127,-38.58919247786147 A 85 85 0 0 1 -60.104076400856556,-60.104076400856535 Z" class="odd triple"></path>
+                  <path ng-click="shot('16')" d="M -106.06601717798215,-106.06601717798212 A 150 150 0 0 0 -133.6509786282552,-68.098574960932 L -95.33769808815536,-48.576983472131495 A 107 107 0 0 1 -75.6604255869606,-75.66042558696059 Z" class="odd single"></path>
+                  <path ng-click="shot('D16')" d="M -120.20815280171311,-120.20815280171307 A 170 170 0 0 0 -151.47110911202253,-77.17838495572293 L -133.6509786282552,-68.098574960932 A 150 150 0 0 1 -106.06601717798215,-106.06601717798212 Z" class="odd double"></path>
+
+                  <path ng-click="shot('7')" d="M -38.58919247786149,-75.73555455601127 A 85 85 0 0 0 -60.104076400856556,-60.104076400856535 L -28.991378028648455,-28.991378028648445 A 41 41 0 0 1 -18.613610489321424,-36.53126749172308 Z" class="even single"></path>
+                  <path ng-click="shot('T7')" d="M -48.57698347213152,-95.33769808815535 A 107 107 0 0 0 -75.6604255869606,-75.66042558696059 L -60.104076400856556,-60.104076400856535 A 85 85 0 0 1 -38.58919247786149,-75.73555455601127 Z" class="even triple"></path>
+                  <path ng-click="shot('7')" d="M -68.09857496093204,-133.65097862825516 A 150 150 0 0 0 -106.06601717798215,-106.06601717798212 L -75.6604255869606,-75.66042558696059 A 107 107 0 0 1 -48.57698347213152,-95.33769808815535 Z" class="even single"></path>
+                  <path ng-click="shot('D7')" d="M -77.17838495572298,-151.47110911202253 A 170 170 0 0 0 -120.20815280171311,-120.20815280171307 L -106.06601717798215,-106.06601717798212 A 150 150 0 0 1 -68.09857496093204,-133.65097862825516 Z" class="even double"></path>
+
+                  <path ng-click="shot('19')" d="M -13.296929528419637,-83.9535089505867 A 85 85 0 0 0 -38.58919247786149,-75.73555455601127 L -18.613610489321424,-36.53126749172308 A 41 41 0 0 1 -6.413813066649473,-40.49522196440064 Z" class="odd single"></path>
+                  <path ng-click="shot('T19')" d="M -16.73848775930472,-105.68265244367973 A 107 107 0 0 0 -48.57698347213152,-95.33769808815535 L -38.58919247786149,-75.73555455601127 A 85 85 0 0 1 -13.296929528419637,-83.9535089505867 Z" class="odd triple"></path>
+                  <path ng-click="shot('19')" d="M -23.465169756034655,-148.15325108927064 A 150 150 0 0 0 -68.09857496093204,-133.65097862825516 L -48.57698347213152,-95.33769808815535 A 107 107 0 0 1 -16.73848775930472,-105.68265244367973 Z" class="odd single"></path>
+                  <path ng-click="shot('D19')" d="M -26.593859056839275,-167.9070179011734 A 170 170 0 0 0 -77.17838495572298,-151.47110911202253 L -68.09857496093204,-133.65097862825516 A 150 150 0 0 1 -23.465169756034655,-148.15325108927064 Z" class="odd double"></path>
+
+                  <path ng-click="shot('3')" d="M 13.296929528419607,-83.95350895058671 A 85 85 0 0 0 -13.296929528419637,-83.9535089505867 L -6.413813066649473,-40.49522196440064 A 41 41 0 0 1 6.413813066649458,-40.49522196440065 Z" class="even single"></path>
+                  <path ng-click="shot('T3')" d="M 16.738487759304682,-105.68265244367974 A 107 107 0 0 0 -16.73848775930472,-105.68265244367973 L -13.296929528419637,-83.9535089505867 A 85 85 0 0 1 13.296929528419607,-83.95350895058671 Z" class="even triple"></path>
+                  <path ng-click="shot('3')" d="M 23.4651697560346,-148.15325108927067 A 150 150 0 0 0 -23.465169756034655,-148.15325108927064 L -16.73848775930472,-105.68265244367973 A 107 107 0 0 1 16.738487759304682,-105.68265244367974 Z" class="even single"></path>
+                  <path ng-click="shot('D3')" d="M 26.593859056839214,-167.90701790117342 A 170 170 0 0 0 -26.593859056839275,-167.9070179011734 L -23.465169756034655,-148.15325108927064 A 150 150 0 0 1 23.4651697560346,-148.15325108927067 Z" class="even double"></path>
+
+                  <path ng-click="shot('17')" d="M 38.58919247786147,-75.73555455601128 A 85 85 0 0 0 13.296929528419607,-83.95350895058671 L 6.413813066649458,-40.49522196440065 A 41 41 0 0 1 18.613610489321413,-36.531267491723085 Z" class="odd single"></path>
+                  <path ng-click="shot('T17')" d="M 48.57698347213149,-95.33769808815538 A 107 107 0 0 0 16.738487759304682,-105.68265244367974 L 13.296929528419607,-83.95350895058671 A 85 85 0 0 1 38.58919247786147,-75.73555455601128 Z" class="odd triple"></path>
+                  <path ng-click="shot('17')" d="M 68.098574960932,-133.6509786282552 A 150 150 0 0 0 23.4651697560346,-148.15325108927067 L 16.738487759304682,-105.68265244367974 A 107 107 0 0 1 48.57698347213149,-95.33769808815538 Z" class="odd single"></path>
+                  <path ng-click="shot('D17')" d="M 77.17838495572293,-151.47110911202256 A 170 170 0 0 0 26.593859056839214,-167.90701790117342 L 23.4651697560346,-148.15325108927067 A 150 150 0 0 1 68.098574960932,-133.6509786282552 Z" class="odd double"></path>
+
+                  <path ng-click="shot('2')" d="M 60.10407640085653,-60.104076400856556 A 85 85 0 0 0 38.58919247786147,-75.73555455601128 L 18.613610489321413,-36.531267491723085 A 41 41 0 0 1 28.99137802864844,-28.991378028648455 Z" class="even single"></path>
+                  <path ng-click="shot('T2')" d="M 75.66042558696057,-75.6604255869606 A 107 107 0 0 0 48.57698347213149,-95.33769808815538 L 38.58919247786147,-75.73555455601128 A 85 85 0 0 1 60.10407640085653,-60.104076400856556 Z" class="even triple"></path>
+                  <path ng-click="shot('2')" d="M 106.0660171779821,-106.06601717798215 A 150 150 0 0 0 68.098574960932,-133.6509786282552 L 48.57698347213149,-95.33769808815538 A 107 107 0 0 1 75.66042558696057,-75.6604255869606 Z" class="even single"></path>
+                  <path ng-click="shot('D2')" d="M 120.20815280171306,-120.20815280171311 A 170 170 0 0 0 77.17838495572293,-151.47110911202256 L 68.098574960932,-133.6509786282552 A 150 150 0 0 1 106.0660171779821,-106.06601717798215 Z" class="even double"></path>
+
+                  <path ng-click="shot('15')" d="M 75.73555455601127,-38.589192477861495 A 85 85 0 0 0 60.10407640085653,-60.104076400856556 L 28.99137802864844,-28.991378028648455 A 41 41 0 0 1 36.53126749172308,-18.613610489321427 Z" class="odd single"></path>
+                  <path ng-click="shot('T15')" d="M 95.33769808815535,-48.57698347213152 A 107 107 0 0 0 75.66042558696057,-75.6604255869606 L 60.10407640085653,-60.104076400856556 A 85 85 0 0 1 75.73555455601127,-38.589192477861495 Z" class="odd triple"></path>
+                  <path ng-click="shot('15')" d="M 133.65097862825516,-68.09857496093204 A 150 150 0 0 0 106.0660171779821,-106.06601717798215 L 75.66042558696057,-75.6604255869606 A 107 107 0 0 1 95.33769808815535,-48.57698347213152 Z" class="odd single"></path>
+                  <path ng-click="shot('D15')" d="M 151.47110911202253,-77.17838495572299 A 170 170 0 0 0 120.20815280171306,-120.20815280171311 L 106.0660171779821,-106.06601717798215 A 150 150 0 0 1 133.65097862825516,-68.09857496093204 Z" class="odd double"></path>
+
+                  <path ng-click="shot('10')" d="M 83.9535089505867,-13.296929528419644 A 85 85 0 0 0 75.73555455601127,-38.589192477861495 L 36.53126749172308,-18.613610489321427 A 41 41 0 0 1 40.49522196440064,-6.4138130666494755 Z" class="even single"></path>
+                  <path ng-click="shot('T10')" d="M 105.68265244367973,-16.73848775930473 A 107 107 0 0 0 95.33769808815535,-48.57698347213152 L 75.73555455601127,-38.589192477861495 A 85 85 0 0 1 83.9535089505867,-13.296929528419644 Z" class="even triple"></path>
+                  <path ng-click="shot('10')" d="M 148.15325108927064,-23.46516975603467 A 150 150 0 0 0 133.65097862825516,-68.09857496093204 L 95.33769808815535,-48.57698347213152 A 107 107 0 0 1 105.68265244367973,-16.73848775930473 Z" class="even single"></path>
+                  <path ng-click="shot('D10')" d="M 167.9070179011734,-26.59385905683929 A 170 170 0 0 0 151.47110911202253,-77.17838495572299 L 133.65097862825516,-68.09857496093204 A 150 150 0 0 1 148.15325108927064,-23.46516975603467 Z" class="even double"></path>
+                </g>
+
+                <!-- Dartboard numbers -->
+                <g transform="translate(210, 210) scale(1,1)">
+                  <text class="dartnumber" x="0" y="-180" transform="rotate(90, 0, 0)">6</text>
+                  <text class="dartnumber" x="0" y="-180" transform="rotate(72, 0, 0)">13</text>
+                  <text class="dartnumber" x="0" y="-180" transform="rotate(54, 0, 0)">4</text>
+                  <text class="dartnumber" x="0" y="-180" transform="rotate(36, 0, 0)">18</text>
+                  <text class="dartnumber" x="0" y="-180" transform="rotate(18, 0, 0)">1</text>
+                  <text class="dartnumber" x="0" y="-180" transform="rotate(0, 0, 0)">20</text>
+                  <text class="dartnumber" x="0" y="-180" transform="rotate(-18, 0, 0)">5</text>
+                  <text class="dartnumber" x="0" y="-180" transform="rotate(-36, 0, 0)">12</text>
+                  <text class="dartnumber" x="0" y="-180" transform="rotate(-54, 0, 0)">9</text>
+                  <text class="dartnumber" x="0" y="-180" transform="rotate(-72, 0, 0)">14</text>
+                  <text id="eleven" ng-click="split1()" class="dartnumber" x="0" y="-180" transform="rotate(-90, 0, 0)">11</text>
+                  <text class="dartnumber" x="0" y="-180" transform="rotate(-108, 0, 0)">8</text>
+                  <text class="dartnumber" x="0" y="-180" transform="rotate(-126, 0, 0)">16</text>
+                  <text class="dartnumber" x="0" y="-180" transform="rotate(-144, 0, 0)">7</text>
+                  <text class="dartnumber" x="0" y="-180" transform="rotate(-162, 0, 0)">19</text>
+                  <text class="dartnumber" x="0" y="-180" transform="rotate(-180, 0, 0)">3</text>
+                  <text class="dartnumber" x="0" y="-180" transform="rotate(-198, 0, 0)">17</text>
+                  <text class="dartnumber" x="0" y="-180" transform="rotate(-216, 0, 0)">2</text>
+                  <text class="dartnumber" x="0" y="-180" transform="rotate(-234, 0, 0)">15</text>
+                  <text class="dartnumber" x="0" y="-180" transform="rotate(-252, 0, 0)">10</text>
+                </g>
+              </svg>
+            </div>
+          </td>
+
+          <!-- PLAYER ON TURN -->
+          <td width="10%"></td>
+          <td class="singleplayer" width=18%>
+            <ul class="list-group" style="text-align: center; border: 5px solid {{ players[turn_counter].color }}; border-radius: 40px">
+              <div class="list-group-item" style="font-size:4vh;"><strong>{{ players[turn_counter].name }}</strong></div>
+              <div id="innerThrows" class="list-group-item" style="min-height:2.1em; font-size:3vh;">{{throws}}</div>
+              <div class="list-group-item" style="min-height:2.1em; font-size:3vh;">Total: <strong>{{ shot_value }}</strong></div>
+                <div class="list-group-item overflow-auto" style="height:14.5vh; font-size:3vh;">
+                  Checkout:
+                  <div style="margin-top: 10px;">
+                    <div class="list-group-item" style="font-size:2.1vh; height: 5vh;">{{ checkout_options[0].str }}</div>
+                  </div>
+                </div>
+              <div class="list-group-item" style="font-size:3vh"><strong>{{funny_number_message}}{{ players[turn_counter].score }} remaining {{funny_number_message}}</strong></div>
+            </ul>
+          </td>
+
+          <!-- ALL PLAYERS -->
+          <td class="container" width="27%">
+            <div class="flex-container"> <!-- not active -->
+              <div ng-repeat="x in players" style="margin: 0; padding-left: 15%; padding-right: 15%; ">
+                <ul class="list-group mt-4" ng-if="x.name" style="text-align: center; border: 5px solid {{ x.color }}">
+                  <div class="list-group-item" style="font-size:1.5em;padding-left:2%;padding-right:2%;">
+                    <div class="float-left"><strong>{{ x.name }}</strong></div>
+                    <div class="float-right">Legs: {{ x.legs_won }} | Sets: {{ x.sets_won }}</div>
+                  </div>
+                  <div class="list-group-item" style="font-size:1.6em">{{x.score}} remaining</div>
+                </ul>
+              </div>
+            </div>
+          </td>
+        </tr>
+        </tbody>
+      </table>
+
+      <!-- Scroller to Stats Section -->
+      <a href="#stats">
+        <div class="scroll-downToStats"></div>
+      </a>
+    </section>
+
+    <!-- Stats section -->
+    <section id="stats">
+      <!-- Scroller to Game Section -->
+      <a href="#game">
+        <div class="scroll-upToGame"></div>
+      </a>
+
+      <div class="row justify-content-center">
+        <h1 class="statsHeader"><strong>&nbsp;Stats</strong></h1>
+      </div>
+
+      <!-- Round-, Legs- and Sets-Counter -->
+      <div class="row justify-content-center">
+        <h3 class="statsCountHeader"><strong>Round {{ roundCounter }} &nbsp; | &nbsp; Leg {{ legsPlayedThisSet }} &nbsp; | &nbsp; Set {{ setsPlayed }}&nbsp;&nbsp;&nbsp;</strong></h3>
+      </div>
+
+      <!-- Data table -->
+      <div class="row justify-content-center">
+        <table class="table table-striped tableStyle" style="width: 80%">
+          <!-- Heading -->
+          <thead class="thead-dark">
+            <tr>
+              <th scope="col">#</th>
+              <th scope="col">Name</th>
+              <th scope="col">Score</th>
+              <th scope="col">Legs Won</th>
+              <th scope="col">Sets Won</th>
+              <th scope="col">Total Shots</th>
+              <th scope="col">% Missed</th>
+              <th scope="col">Overshot</th>
+              <th scope="col">Avg. Checkout-Attempts / Leg</th>
+              <th scope="col">Avg. Score/Round</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr ng-repeat="x in players">
+              <td><strong>{{ $index + 1 }}</strong></td>
+              <td><strong>{{ x.name }}</strong></td>
+              <td>{{ x.score }}</td>
+              <td>{{ x.legs_won }}</td>
+              <td>{{ x.sets_won }}</td>
+              <td>{{ x.totalShots }}</td>
+              <td>{{ x.avgMissed }}%</td>
+              <td>{{ x.overshot }}</td>
+              <td>{{ x.checkout_attempts }}</td>
+              <td>{{ x.avgScore }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+    </section>
+  </div>
+
+  <script>
+    let app = angular.module("dartApp",[]);
+    app.controller("myCtrl", function($scope) {
+
+      function getParams (url = window.location) {
+        let params = {};
+        new URL(url).searchParams.forEach(function (val, key) {
+          if (params[key] !== undefined) {
+            if (!Array.isArray(params[key])) {
+              params[key] = [params[key]];
+            }
+            params[key].push(val);
+          } else {
+            params[key] = val;
+          }
+        });
+        return params;
+      }
+
+      let url = window.location;
+      let params = getParams(url);
+
+      // gets the start score from the url and displays it in the intro section via innerHTML
+      let start_score = params.startscore;
+      let testValues = false;
+      for(let i = 201; i <= 901; i+=100) {
+        if(start_score === i) {
+          testValues = true;
+        }
+      }
+
+      // gets the legs + sets to win and the checkout mode from the url
+      $scope.legs_to_win = params.l;
+      $scope.sets_to_win = params.s;
+      $scope.checkout_mode = params.cm;
+
+      // checks checkout mode and sets pub rule to true if needed
+      if(parseInt($scope.checkout_mode.substring(7,8)) === 1) {
+        $scope.checkout_mode = 'Straight';
+      } else if(parseInt($scope.checkout_mode.substring(7,8)) === 2) {
+        $scope.checkout_mode = 'Double';
+      } else if(parseInt($scope.checkout_mode.substring(7,8)) === 3) {
+        $scope.checkout_mode = 'Double';
+        $scope.pub_rule = true;
+      } else if(parseInt($scope.checkout_mode.substring(7,8)) === 4) {
+        $scope.checkout_mode = 'Master';
+      }
+
+      let displayLegs = $scope.legs_to_win.toString();
+      let displaySets = $scope.sets_to_win.toString();
+      let displayCheckoutMode = $scope.checkout_mode.toString();
+
+      document.getElementById('getScore').innerHTML = start_score;
+      document.getElementById('getLegs').innerHTML = displayLegs;
+      document.getElementById('getSets').innerHTML = displaySets;
+
+      if($scope.pub_rule === true) {
+        document.getElementById('getCheckoutmode').innerHTML = "Double  (+ Pub-Rule)";
+      } else {
+        document.getElementById('getCheckoutmode').innerHTML = displayCheckoutMode;
+      }
+
+      // creates players
+      $scope.players = [];
+
+      for (let i = 0; i < params.player.length; i++) {
+        $scope.players[i] = {
+          name: params.player[i],
+          score: start_score,
+          shots: [],
+          totalShots: 0,
+          color: "",
+          legs_won: 0,
+          sets_won: 0,
+          shots_missed: 0,
+          avgMissed: 0,
+          checkout_attempts: 0,
+          overshot: 0,
+          totalPoints: 0,
+          avgScore: 0,
+        };
+      }
+
+      // for the colors of the players
+      let saturation = "100%";
+      let luminance = "70%";
+      for (let i = 0 ; i < $scope.players.length ; i++) {
+        $scope.players[i].color = "hsl(" + 360/$scope.players.length * i + "," + saturation + "," + luminance + ")";
+      }
+
+      // some variables needed for the game
+      $scope.next_new_game = "Next Game"
+      $scope.hide_undo = "display: none";
+      $scope.hide_checkout = "display: none";
+      $scope.checkout_options = [];
+      $scope.throws = "";
+      $scope.turn_counter = 0;
+      $scope.shot_value = 0;
+      $scope.funny_number_message = "";
+
+      let overshot = false;
+      let shot_counter = 0;
+      let lower_limit = 1;
+      if ($scope.checkout_mode.includes('Double') && !$scope.pub_rule) {
+        lower_limit = 2;
+      } else if ($scope.checkout_mode.includes('Master')) {
+        lower_limit = 3;
+      }
+
+      // variables for the stats section
+      $scope.roundCounter = 1;
+      $scope.legsPlayedThisSet = 1;
+      $scope.setsPlayed = 1;
+
+      // displays some symbols if a player has a "funny" score (69, 88 or 420)
+      checkFunnyNumber = function() {
+        switch ($scope.players[$scope.turn_counter].score) {
+          case 69:
+            $scope.funny_number_message = "🍆💦"
+            break;
+          case 88:
+            $scope.funny_number_message = "🖕"
+            break;
+          case 420:
+            $scope.funny_number_message = "🥦"
+            break;
+          default:
+            $scope.funny_number_message = "";
+            break;
+        }
+      }
+
+      // function for the pub rule
+      $scope.split1 = function() {
+        if ($scope.pub_rule) {
+          if ($scope.players[$scope.turn_counter].score !== 1) {
+            $scope.shot("Miss");
+          } else {
+            shot_counter++;
+            $scope.throws += "Pub-Rule ";
+            $scope.players[$scope.turn_counter].score -= 1;
+            $scope.shot_value += 1;
+
+            win();
+            checkUndo();
+            calcCheckouts();
+            checkFunnyNumber();
+          }
+        }
+      }
+
+      if ($scope.pub_rule) {
+        document.styleSheets[0].insertRule('#eleven:hover{fill:hsl(198,100%,45%); cursor:pointer;}',1);
+      }
+
+      // opens a modal/popup which shows who won the leg/set and displays stats about the players throws
+      win = function() {
+        $('#winPopup').modal({
+          keyboard: false,
+          backdrop: 'static'
+        })
+        document.getElementById('winPopupLabel').innerHTML = $scope.players[$scope.turn_counter].name + " won!";
+        if ($scope.players[$scope.turn_counter].legs_won === $scope.legs_to_win - 1) {
+          $scope.players[$scope.turn_counter].legs_won = 0;
+          if ($scope.players[$scope.turn_counter].sets_won === $scope.sets_to_win - 1) {
+            actualWin();
+          }
+          $scope.players[$scope.turn_counter].sets_won++;
+          $scope.setsPlayed++;
+          $scope.legsPlayedThisSet = 1;
+          $scope.roundCounter = 1;
+          for(let i = 0; i < $scope.players.length; i++) {
+            $scope.players[i].legs_won = 0;
+          }
+        } else {
+          $scope.players[$scope.turn_counter].legs_won++;
+          $scope.legsPlayedThisSet++;
+          $scope.roundCounter = 1;
+        }
+        $scope.players[$scope.turn_counter].shots.reverse();
+        $scope.players[$scope.turn_counter].shots.push($scope.players[$scope.turn_counter].shots.length + 1 + " | " + $scope.throws + " | " + $scope.shot_value);
+        $scope.players[$scope.turn_counter].shots.reverse();
+        $('#winPopup').modal('show');
+      }
+
+      // jumps to the next game
+      $scope.nextGame = function() {
+        $scope.shot_value = 0;
+        shot_counter = 0;
+        $scope.turn_counter = 0;
+        $scope.roundCounter = 1;
+        $scope.throws = "";
+        for (let i = 0 ; i < $scope.players.length ; i++) {
+          $scope.players[i].shots = [];
+          $scope.players[i].score = start_score;
+          if ($scope.players[i].sets_won === $scope.sets_to_win) {
+            window.location.href = "settings.html";
+          }
+        }
+      }
+
+      // if a player has reached the amount of sets needed to win (possible to start a new game here)
+      actualWin = function() {
+        $scope.next_new_game = "New Game";
+      }
+
+      // closes modal and resets to the state before clicking
+      $scope.closeModal = function(x) {
+        $scope.players[$scope.turn_counter].shots.reverse();
+        $scope.players[$scope.turn_counter].shots.pop()
+        $scope.players[$scope.turn_counter].shots.reverse();
+        if ($scope.players[$scope.turn_counter].legs_won == 0) {
+          $scope.players[$scope.turn_counter].sets_won--;
+          $scope.players[$scope.turn_counter].legs_won = $scope.legs_to_win -1
+        } else {
+          $scope.players[$scope.turn_counter].legs_won--;
+        }
+        $scope.undo();
+      }
+
+      // activated if player shoots
+      $scope.shot = function(x) {
+        let value = evalShot(x);
+        shot_counter++;
+        $scope.players[$scope.turn_counter].totalShots++;
+        $scope.throws += (x + " ");
+        $scope.players[$scope.turn_counter].score -= value;
+        $scope.shot_value += value;
+
+
+        /* CHECKOUT ATTEMPTS
+        // checks checkout-attempts of a player
+        if($scope.checkout_mode === 'Straight') {
+          let x = $scope.players[$scope.turn_counter].checkout_options[0].str;
+          let checkForCheckoutOptions = x.substring(0, x.indexOf(' '));
+          if()
+        } else if($scope.checkout_mode === 'Master') {
+
+        } else if($scope.checkout_mode === 'Double') {
+
+        }
+        */
+
+        //checks avgMissed of a player
+        if($scope.players[$scope.turn_counter].totalShots === 0) {
+          $scope.players[$scope.turn_counter].avgMissed = 0;
+        } else {
+          $scope.players[$scope.turn_counter].avgMissed = Math.round(($scope.players[$scope.turn_counter].shots_missed / $scope.players[$scope.turn_counter].totalShots * 100) * 10) / 10;
+        }
+
+        if ($scope.players[$scope.turn_counter].score < lower_limit) {
+          checkScore(x);
+        } else {
+          if (shot_counter == 3) {
+            nextTurn();
+          }
+        }
+
+        checkUndo();
+        calcCheckouts();
+        checkFunnyNumber();
+
+      }
+
+      // displays the finished throws (the round)
+      nextTurn = function() {
+        $scope.players[$scope.turn_counter].shots.reverse();
+        if (overshot) {
+          $scope.players[$scope.turn_counter].shots.push($scope.players[$scope.turn_counter].shots.length + 1 + " | " + $scope.throws + " | " + $scope.shot_value + " = 0");
+          overshot = false;
+        } else {
+          $scope.players[$scope.turn_counter].shots.push($scope.players[$scope.turn_counter].shots.length + 1 + " | " + $scope.throws + " | " + $scope.shot_value);
+        }
+
+        $scope.players[$scope.turn_counter].totalPoints += $scope.shot_value;
+        $scope.players[$scope.turn_counter].avgScore = Math.round($scope.players[$scope.turn_counter].totalPoints / $scope.roundCounter * 10) / 10;
+
+        $scope.players[$scope.turn_counter].shots.reverse();
+        $scope.turn_counter = ($scope.turn_counter < $scope.players.length - 1) ? $scope.turn_counter + 1 : 0;
+        $scope.throws = "";
+        shot_counter = 0;
+        $scope.shot_value = 0;
+
+        if($scope.turn_counter === 0) {
+          $scope.roundCounter++;
+        }
+      }
+
+      // calculates the value of a single shot
+      evalShot = function(x) {
+        let mul = 1;
+        let amount = 0;
+        if(x === 'BullsEye') {
+          return 50;
+        }
+
+        if(!x.includes('D') && !x.includes('T')){
+          amount = Number(x)
+        }
+
+        if (x.includes('D')) {
+          mul = 2;
+        } else if (x.includes('T')) {
+          mul = 3;
+        }
+        if (x.length === 2 && (x.charAt(0) === 'D' || x.charAt(0) === 'T')) {
+          amount = Number(x.substr(1));
+        }
+        else if (x.length === 3) {
+          amount = Number(x.substr(1,2));
+        }
+        else if (x === "Miss") {
+          amount = 0;
+          $scope.players[$scope.turn_counter].shots_missed++;
+        }
+        return (mul*amount)
+      }
+
+      // checks if player overshot or won with a shot
+      checkScore = function(x) {
+
+        if ($scope.players[$scope.turn_counter].score === 0) {
+          switch ($scope.checkout_mode) {
+            case 'Double':
+              if (x.includes('D') || x === 'BullsEye') {
+                win();
+              } else {
+                overshoot();
+              }
+              break;
+            case 'Master':
+              if (x.includes('T')) {
+                win();
+              } else {
+                overshoot();
+              }
+              break;
+            case 'Straight':
+              win();
+              break;
+            default:
+              $scope.throws = "idk how you checkout ¯\_(ツ)_/¯"
+              break;
+          }
+        } else {
+          overshoot();
+        }
+      }
+
+      // checks if a player overshoots
+      overshoot = function() {
+        overshot = true;
+        $scope.players[$scope.turn_counter].score += $scope.shot_value;
+        $scope.players[$scope.turn_counter].overshot++;
+        nextTurn();
+      }
+
+      // undo-function
+      $scope.undo = function() {
+        if (shot_counter === 0) {
+
+          // go to the previous player
+          $scope.turn_counter = ($scope.turn_counter === 0) ? $scope.players.length - 1 : $scope.turn_counter - 1;
+
+          if($scope.turn_counter === $scope.players.length-1 && $scope.roundCounter > 1){
+            $scope.roundCounter--;
+          }
+
+          // shot_history
+          $scope.players[$scope.turn_counter].shots.reverse();
+          let latest_shots_entry = $scope.players[$scope.turn_counter].shots.pop()
+          $scope.players[$scope.turn_counter].shots.reverse();
+
+          // throws
+          $scope.throws = "";
+
+          // total shots
+          if($scope.players[$scope.turn_counter].totalShots >= 3) {
+            $scope.players[$scope.turn_counter].totalShots-=3;
+          } else {
+            $scope.players[$scope.turn_counter].totalShots = 0;
+          }
+
+          //avgScore
+          $scope.players[$scope.turn_counter].totalPoints -= $scope.players[$scope.turn_counter].shot_value;
+
+          // score
+          $scope.players[$scope.turn_counter].score += Number(latest_shots_entry.split(' ')[latest_shots_entry.split(' ').length - 1].trim());
+
+          // shots_missed
+          if($scope.players[$scope.turn_counter].shots_missed >= 1) {
+            $scope.players[$scope.turn_counter].shots_missed--;
+          } else {
+            $scope.players[$scope.turn_counter].shots_missed = 0;
+          }
+        } else {
+          // reduces shot counter by one shot
+          shot_counter--;
+
+          // score
+          $scope.players[$scope.turn_counter].score += evalShot($scope.throws.split(' ')[$scope.throws.split(' ').length - 2]);
+
+          // shot_value
+          $scope.shot_value -= evalShot($scope.throws.split(' ')[$scope.throws.split(' ').length - 2]);
+
+          // avgMissed
+
+          // shots_missed
+          if ($scope.throws.substring($scope.throws.substring(0,$scope.throws.length - 1).lastIndexOf(' '), $scope.throws.length - 1) === "Miss") $scope.players[$scope.turn_counter].shots_missed--;
+
+          // total shots
+          if($scope.players[$scope.turn_counter].totalShots >= 1) {
+            $scope.players[$scope.turn_counter].totalShots--;
+          } else {
+            $scope.players[$scope.turn_counter].totalShots = 0;
+          }
+
+          // removes string from 'throws'
+          $scope.throws = $scope.throws.substring(0, $scope.throws.substring(0,$scope.throws.length - 1).lastIndexOf(' ')) + ' ';
+
+        }
+        checkUndo();
+        calcCheckouts();
+        checkFunnyNumber();
+      }
+
+
+
+      // hides undo before the first throw of the leg
+      checkUndo = function() {
+        if ($scope.players[($scope.turn_counter === 0) ? $scope.players.length - 1 : $scope.turn_counter - 1].shots.length > 0 || $scope.throws.length > 1) {
+          $scope.hide_undo = "";
+        } else {
+          $scope.hide_undo = "display: none;";
+        }
+      }
+
+      // algorithm for getting all dart checkouts
+      class Dart {
+        constructor(score, multip) {
+          this.score = score;
+          this.multip = multip;
+        }
+
+        str() {
+          if (this.multip === 'T') {
+            return (this.multip).toString() + ((this.score/3).toFixed()).toString();
+          }
+          if (this.multip === 'D') {
+            return (this.multip).toString() + ((this.score/2).toFixed()).toString();
+          }
+          if (this.multip === 'S') {
+            return (this.multip).toString() + (this.score).toString();
+          }
+          return (this.multip).toString();
+        }
+      }
+
+      function clearAll() {
+        all_score = [];
+        checkout_score = [];
+        $scope.checkout_options = [];
+      }
+
+      function generateAllScores() {
+        for (let i = 1 ; i < 21 ; i++) {
+          all_score.push(new Dart(i, "S"));
+          all_score.push(new Dart(i * 2, "D"));
+          all_score.push(new Dart(i * 3, "T"));
+        }
+        all_score.push(new Dart(25, "SBull"));
+        all_score.push(new Dart(50, "DBull"));
+      }
+
+      function generateCheckoutScore() {
+        switch ($scope.checkout_mode) {
+                // Straight out
+          case 'Straight' :
+            for (let i = 1 ; i < 21 ; i++) {
+              checkout_score.push(new Dart(i, "S"));
+              checkout_score.push(new Dart(i * 2, "D"));
+              checkout_score.push(new Dart(i * 3, "T"));
+            }
+            checkout_score.push(new Dart(25, "25"));
+            checkout_score.push(new Dart(50, "BullsEye"));
+            break;
+                // Double out
+          case 'Double' :
+            for (let i = 1 ; i < 21 ; i++) {
+              checkout_score.push(new Dart(i * 2, "D"));
+            }
+            checkout_score.push(new Dart(50, "BullsEye"));
+            break;
+                // Master out
+          case 'Master' :
+            for (let i = 1 ; i < 21 ; i++) {
+              checkout_score.push(new Dart(i * 3, "T"));
+            }
+            break;
+
+          default:
+            for (let i = 1 ; i < 21 ; i++) {
+              checkout_score.push(new Dart(i * 2, "D"));
+            }
+            checkout_score.push(new Dart(50, "BullsEye"));
+            break;
+        }
+      }
+
+      function checkSingleDart(limit) {
+        checkout_score.forEach(third => {
+          if (third.score == limit) {
+            $scope.checkout_options.push({ "str" : third.str(), "weight" : 0});
+          }
+        });
+      }
+
+      function checkTwoDarts(limit) {
+        all_score.forEach(second => {
+          checkout_score.forEach(third => {
+            if (second.score + third.score == limit) $scope.checkout_options.push({ "str" : second.str() + " " + third.str(), "weight" : 0});
+          });
+        });
+      }
+
+      function checkThreeDarts(limit) {
+        for (let i = 0 ; i < all_score.length ; i++) {
+          for ( let j = i ; j < all_score.length ; j++) {
+            checkout_score.forEach(third => {
+              if (all_score[i].score + all_score[j].score + third.score == limit) {
+                $scope.checkout_options.push({ "str" : all_score[i].str() + " " + all_score[j].str() + " " + third.str(), "weight" : 0});
+              }
+            });
+          }
+        }
+      }
+
+      function sortByWeight() {
+        // Calculate the weight
+        $scope.checkout_options.forEach(function (el) {
+          // Amount of shots
+          if (/\S{2,5}\s\S{2,5}\s\S{2,5}/gi.test(el.str)) {
+            el.weight += 0;
+          } else if (/\S{2,5}\s\S{2,5}/gi.test(el.str)) {
+            el.weight += 5;
+          } else if (/\S{2,5}/gi.test(el.str)) {
+            el.weight += 10;
+          }
+          // S, D, T, Bullseye
+          for (let j = 0 ; j < (el.str.match(/S/g) || []).length ; j++) {
+            el.weight += 2;
+          }
+          for (let j = 0 ; j < (el.str.match(/(D|T)/g) || []).length ; j++) {
+            el.weight -= 0;
+          }
+          for (let j = 0 ; j < (el.str.match(/Bull/g) || []).length ; j++) {
+            el.weight -= 1;
+          }
+          // 20,16,12,8,4
+          for (let j = 0 ; j < (el.str.match(/(20|16|12|\D8|\D4)/g) || []).length ; j++) {
+            el.weight += 1;
+          }
+          // 1,3
+          if ((el.str.match(/(\D1|\D3)/g) || []).length == 1) {
+            el.weight += 1;
+          }
+        });
+
+        // Sorting
+        let len = $scope.checkout_options.length-1;
+        for (let i = 0; i < len; i++) {
+          for (let j = 0; j < len; j++) {
+            if ($scope.checkout_options[j].weight < $scope.checkout_options[j + 1].weight) {
+              let tmp = $scope.checkout_options[j];
+              $scope.checkout_options[j] = $scope.checkout_options[j + 1];
+              $scope.checkout_options[j + 1] = tmp;
+            }
+          }
+        }
+      }
+
+      function calcCheckouts() {
+        clearAll();
+        generateAllScores();
+        generateCheckoutScore();
+        if (shot_counter == 0) {
+          checkSingleDart($scope.players[$scope.turn_counter].score);
+          checkTwoDarts($scope.players[$scope.turn_counter].score);
+          checkThreeDarts($scope.players[$scope.turn_counter].score);
+        } else if (shot_counter == 1) {
+          checkSingleDart($scope.players[$scope.turn_counter].score);
+          checkTwoDarts($scope.players[$scope.turn_counter].score);
+        } else {
+          checkSingleDart($scope.players[$scope.turn_counter].score);
+        }
+        sortByWeight();
+        if ($scope.checkout_mode == "Double") {
+          $scope.hide_checkout = ($scope.players[$scope.turn_counter].score > 170) ? "display: none" : "";
+        } else {
+          $scope.hide_checkout = ($scope.players[$scope.turn_counter].score > 180) ? "display: none" : "";
+        }
+      }
+      calcCheckouts();
+      checkFunnyNumber();
+    });
+
+
+  </script>
+
+</body>
+
+</html>
